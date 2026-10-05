@@ -22,6 +22,16 @@
     dhcpV4Config.RouteMetric = 300;
   };
 
+  # 代理（与服务器集群同款，显式声明；机房断网时代理自然失效，靠国内镜像兜底）
+  environment.variables = {
+    HTTP_PROXY  = "http://192.168.100.1:7890";
+    HTTPS_PROXY = "http://192.168.100.1:7890";
+    http_proxy  = "http://192.168.100.1:7890";
+    https_proxy = "http://192.168.100.1:7890";
+    NO_PROXY    = "127.0.0.1,localhost,192.168.0.0/16";
+    no_proxy    = "127.0.0.1,localhost,192.168.0.0/16";
+  };
+
   services.openssh = {
     enable = true;
     settings = {
@@ -35,7 +45,6 @@
   users.users.root.initialPassword = "nixos";
   users.users.root.shell = pkgs.zsh;
 
-  # shell 环境（对齐 h12 习惯）
   programs.zsh = {
     enable = true;
     enableCompletion = true;
@@ -55,7 +64,6 @@
 
       eval "$(zoxide init zsh)"
 
-      # 机器人仓库专用快捷指令
       rebuild() {
         cd /root/rpi4 && nixos-rebuild switch --flake .#rpi4
       }
