@@ -1,14 +1,11 @@
-# Raspberry Pi 4 定制 SD 镜像配置（机器人底系统）
-# 背景：官方 25.11 镜像在本机出现启动后间歇卡死 + 无 DHCP（vc4 嫌疑）
-# 本镜像：静态地址 + SSH 公钥 + 禁用 vc4，烧录后无需显示器/键盘
-{ config, pkgs, lib, ... }:
-
+{ config, pkgs, lib, secrets, ... }:
 {
   networking.hostName = "rpi4";
   time.timeZone = "Asia/Shanghai";
   system.stateVersion = "26.05";
 
-  # 静态地址，避开 OpenWrt DHCP 动态段(.100-.200)
+  nix.settings.experimental-features = [ "nix-command" "flakes" ];
+
   networking.useNetworkd = true;
   systemd.network.networks."10-lan" = {
     matchConfig.Name = "end* eth* en*";
@@ -17,19 +14,92 @@
     dns = [ "192.168.100.1" "223.5.5.5" ];
   };
 
+  networking.wireless.enable = true;
+  networking.wireless.networks."${secrets.wifiSSID}".psk = secrets.wifiPSK;
+  systemd.network.networks."20-wifi" = {
+    matchConfig.Name = "wlan0";
+    networkConfig.DHCP = "yes";
+    dhcpV4Config.RouteMetric = 300;
+  };
+
   services.openssh = {
     enable = true;
-    settings.PermitRootLogin = "yes";
+    settings = {
+      PermitRootLogin = "yes";
+      PasswordAuthentication = true;
+    };
   };
   users.users.root.openssh.authorizedKeys.keys = [
     "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIH4o7cUdPevEr2IbmMoqv1Ws0eVmbhC2woy5VoFI7E9/ traversal@BUILDER-13"
   ];
-  # console 兜底密码（平时用不到，SSH 是 key 登录）
   users.users.root.initialPassword = "nixos";
+  users.users.root.shell = pkgs.zsh;
 
-  # 排除 vc4 KMS 卡死嫌疑，反正无头
+  # shell 环境（对齐 h12 习惯）
+  programs.zsh = {
+    enable = true;
+    enableCompletion = true;
+    autosuggestions.enable = true;
+    syntaxHighlighting.enable = true;
+    shellAliases = {
+      ls = "eza";
+      ll = "eza -l";
+      la = "eza -la";
+      ".." = "cd ..";
+    };
+    interactiveShellInit = ''
+      HISTSIZE=10000
+      SAVEHIST=10000
+      HISTFILE=~/.zsh_history
+      setopt AUTO_CD
+
+      eval "$(zoxide init zsh)"
+
+      # 机器人仓库专用快捷指令
+      rebuild() {
+        cd /root/rpi4 && nixos-rebuild switch --flake .#rpi4
+      }
+      update() {
+        cd /root/rpi4 && nix flake update && nixos-rebuild switch --flake .#rpi4
+      }
+    '';
+  };
+
+  programs.starship = {
+    enable = true;
+    settings = {
+      character = {
+        success_symbol = ">";
+        error_symbol = "x";
+      };
+      directory = {
+        truncation_length = 3;
+        truncate_to_repo = true;
+        style = "bold cyan";
+      };
+      git_branch = {
+        symbol = "git:";
+        style = "bold purple";
+      };
+      cmd_duration = {
+        min_time = 500;
+        format = "took [$duration](bold yellow)";
+      };
+      time = {
+        disabled = false;
+        format = "[$time]($style) ";
+        style = "bold white";
+      };
+    };
+  };
+
+  programs.zoxide.enable = true;
+
+  environment.systemPackages = with pkgs; [
+    git vim lazygit
+    eza bat fd ripgrep fzf btop jq
+  ];
+
   boot.blacklistedKernelModules = [ "vc4" ];
-
-  # 镜像不压缩（压缩要在模拟器下跑，省时间；Rufus 直接写 .img）
   sdImage.compressImage = false;
 }
